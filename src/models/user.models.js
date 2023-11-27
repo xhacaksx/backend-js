@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 
 const userSchema = new mongoose.Schema(
   {
@@ -17,7 +19,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    fullname: {
+    fullName: {
       type: String,
       required: true,
       trim: true,
@@ -47,4 +49,45 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+//pre hook, save hone just pehle
+//arrow function use nhi hota, kiuki arrow mei this ka context nhi hota
+//toh access kese karenge userSchema
+userSchema.pre("save", async function (next) {
+  //this checks if password is modified or not else
+  //everytime we change any other fields it will again hash the password
+  if (!this.isModified("password")) return next();
+  this.password = bcrypt.hash(this.password, 10);
+  next();
+});
+
+//checks if user password is equal to password in db
+userSchema.methods.isPasswordCorrect = async function (password) {
+  return await bcrypt.compare(password, this.password);
+};
+
+userSchema.methods.generateAccessToken = function () {
+  return jwt.sign(
+    {
+      _id: this._id,
+      email: this.email,
+      username: this.username,
+      fullName: this.fullName,
+    },
+    process.env.ACCESS_TOKEN_SECRET,
+    {
+      expiresIn: process.env.ACCESS_TOKEN_EXPIRY,
+    }
+  );
+};
+userSchema.methods.generateRefreshToken = function () {
+  return jwt.sign(
+    {
+      _id: this._id,
+    },
+    process.env.REFRESH_TOKEN_SECRET,
+    {
+      expiresIn: process.env.REFRESH_TOKEN_EXPIRY,
+    }
+  );
+};
 export const User = mongoose.model("User", userSchema);
