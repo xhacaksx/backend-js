@@ -3,7 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.models.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-
+import jwt from "jsonwebtoken";
 const generateAccessAndRefreshTokens = async (userId) => {
   try {
     const user = await User.findById(userId);
@@ -60,29 +60,29 @@ const registerUser = asyncHandler(async (req, res) => {
   const avatarLocalPath = req.files?.avatar[0]?.path;
   //const coverImageLocalPath = req.files?.coverImage[0]?.path;
 
-  if (!avatarLocalPath) {
-    throw new ApiError(400, "Avatar file is requried");
-  }
+  // if (!avatarLocalPath) {
+  //   throw new ApiError(400, "Avatar file is requried");
+  // }
 
-  const avatar = await uploadOnCloudinary(avatarLocalPath);
-  const coverImage = await uploadOnCloudinary(coverImageLocalPath);
+  //const avatar = await uploadOnCloudinary(avatarLocalPath);
+  //const coverImage = await uploadOnCloudinary(coverImageLocalPath);
 
-  let coverImageLocalPath;
-  if (
-    req.files &&
-    Array.isArray(req.files.coverImage) &&
-    req.files.coverImage.length > 0
-  ) {
-    coverImageLocalPath = req.files.coverImage[0].path;
-  }
-  if (!avatar) {
-    throw new ApiError(400, "Avatar file is requried");
-  }
+  // let coverImageLocalPath;
+  // if (
+  //   req.files &&
+  //   Array.isArray(req.files.coverImage) &&
+  //   req.files.coverImage.length > 0
+  // ) {
+  //   coverImageLocalPath = req.files.coverImage[0].path;
+  // }
+  // if (!avatar) {
+  //   throw new ApiError(400, "Avatar file is requried");
+  // }
 
   const user = await User.create({
     fullName,
-    avatar: avatar.url,
-    coverImage: coverImage?.url || "",
+    //avatar: avatar.url,
+    //coverImage: coverImage?.url || "",
     email,
     password,
     username: username.toLowerCase(),
@@ -105,7 +105,7 @@ const loginUser = asyncHandler(async (req, res) => {
   // req body -> data
 
   const { username, email, password } = req.body;
-  if (!username || !email) {
+  if (!(username || email)) {
     throw new ApiError(400, "username or password is required!");
   }
   //username or email
@@ -182,4 +182,46 @@ const logoutUser = asyncHandler(async (req, res) => {
     .clearCookie("refreshToken", options)
     .json(new ApiResponse(200, {}, "User logged Out!"));
 });
-export { registerUser, loginUser, logoutUser };
+
+const refreshAccessToken = asyncHandler(async (req, res) => {
+  const incomingingRefreshToken =
+    req.cookies.refreshToken || req.body.refreshToken;
+  if (!incomingingRefreshToken) throw new ApiError(401, "unauthorized access");
+
+  try {
+    const decodedToken = jwt.verify(
+      incomingingRefreshToken,
+      process.env.REFRESH_TOKEN_SECRET
+    );
+
+    const user = await User.findById(decodedToken?._id);
+
+    if (!user) throw new ApiError(401, "invalid refresh token");
+    if (incomingingRefreshToken !== user?.refreshToken) {
+      throw new ApiError(401, "Refresh token is expired or used!");
+    }
+
+    const options = {
+      httpOnly: true,
+      secure: true,
+    };
+
+    const { accessToken, newRefreshToken } =
+      await generateAccessAndRefreshTokens(user._id);
+
+    return res
+      .status(200)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", newRefreshToken, options)
+      .json(
+        new ApiResponse(
+          200,
+          { accessToken, refreshToken: newRefreshToken },
+          "Access Token refreshed successfully"
+        )
+      );
+  } catch (error) {
+    throw new ApiError(401, error?.message || "invalid refresh token");
+  }
+});
+export { registerUser, loginUser, logoutUser, refreshAccessToken };
